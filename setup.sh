@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# ─── ensure we’re running from the directory containing this script ───
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 apt update 
 apt install -y vim screen
 
@@ -88,33 +92,55 @@ install_requirements() {
 }
 
 download_resid_data() {
-    echo "Downloading reasoning_resid_data from GCS…"
+    echo "📥 Downloading reasoning_resid_data from GCS…"
 
     export GOOGLE_APPLICATION_CREDENTIALS="/root/key.json"
 
+    # default bucket if not overridden
     if [ -z "$GCS_BUCKET" ]; then
-        echo "❌ ERROR: GCS_BUCKET environment variable not set."
-        return 1
+        export GCS_BUCKET="reasoning_storage"
+        echo "📦 Using default bucket: $GCS_BUCKET"
+    else
+        echo "📦 Using provided bucket: $GCS_BUCKET"
     fi
 
-    pip install --upgrade google-cloud-storage
+    # ensure we’re in the repo dir
+    export SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR"
 
-    python3 - <<'EOF'
+    # install client if needed
+    pip install --upgrade google-cloud-storage >/dev/null
+
+    python3 - <<EOF
 import os
 from google.cloud import storage
 
 bucket_name = os.environ["GCS_BUCKET"]
+project_root = os.environ["SCRIPT_DIR"]
+
 client = storage.Client()
 bucket = client.bucket(bucket_name)
 
-for blob in client.list_blobs(bucket, prefix="reasoning_resid_data/"):
-    if blob.name.endswith("/"): continue
-    os.makedirs(os.path.dirname(blob.name), exist_ok=True)
-    blob.download_to_filename(blob.name)
+# the prefix under which you actually uploaded your folder
+prefix = "residual_stream_data/reasoning_resid_data/"
+
+print(f"📦 Fetching blobs with prefix: {prefix}")
+for blob in client.list_blobs(bucket, prefix=prefix):
+    if blob.name.endswith("/"):
+        continue
+
+    # compute path under ./reasoning_resid_data/
+    rel = os.path.relpath(blob.name, prefix)
+    dest = os.path.join(project_root, "reasoning_resid_data", rel)
+
+    print(f"  → {blob.name} → {dest}")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    blob.download_to_filename(dest)
 
 print("✅ reasoning_resid_data downloaded")
 EOF
 }
+
 
 setup_gcs_key() {
     echo ""
