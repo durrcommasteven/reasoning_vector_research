@@ -87,6 +87,44 @@ install_requirements() {
     echo "Done installing requirements!"
 }
 
+download_resid_data() {
+    echo "Downloading reasoning_resid_data from GCS…"
+
+    export GOOGLE_APPLICATION_CREDENTIALS="/root/key.json"
+
+    if [ -z "$GCS_BUCKET" ]; then
+        echo "❌ ERROR: GCS_BUCKET environment variable not set."
+        return 1
+    fi
+
+    pip install --upgrade google-cloud-storage
+
+    python3 - <<'EOF'
+import os
+from google.cloud import storage
+
+bucket_name = os.environ["GCS_BUCKET"]
+client = storage.Client()
+bucket = client.bucket(bucket_name)
+
+for blob in client.list_blobs(bucket, prefix="reasoning_resid_data/"):
+    if blob.name.endswith("/"): continue
+    os.makedirs(os.path.dirname(blob.name), exist_ok=True)
+    blob.download_to_filename(blob.name)
+
+print("✅ reasoning_resid_data downloaded")
+EOF
+}
+
+setup_gcs_key() {
+    echo ""
+    echo "🔐 Paste your GCS service account JSON below, then press Ctrl-D (or Ctrl-Z then Enter):"
+    mkdir -p /root
+    cat > /root/key.json
+    echo ""
+    echo "✅ Key saved to /root/key.json"
+}
+
 echo "Running set up..."
 
 echo "" > .env
@@ -100,5 +138,7 @@ setup_git
 setup_hf
 setup_venv
 install_requirements
+setup_gcs_key
+download_resid_data
 
 echo "All set up!"

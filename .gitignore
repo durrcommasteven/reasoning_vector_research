@@ -1,4 +1,5 @@
-/.vscode
-/__pycache__
-/venv
+.vscode
+__pycache__
+venv
+reasoning_resid_data/
 .env
