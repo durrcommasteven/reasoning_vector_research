@@ -89,6 +89,8 @@ class ReasoningAnsweringComparator:
         self.think_prefix = self.tokenizer.apply_chat_template(
             chat, add_generation_prompt=True, tokenize=False
         )
+        # remove bos token
+        if self.think_prefix.startswith("<｜begin▁of▁sentence｜>"):
 
         # 2) ANSWER prefix (greedy to </think>)
         if not immediately_answer:
