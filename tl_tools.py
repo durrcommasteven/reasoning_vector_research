@@ -102,10 +102,10 @@ def sanitize_subject(s: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in s).lower().strip("_")
 
 
-def make_file_name(prompt_subject, prompt_string, template_mode):
-    clean = sanitize_filename(prompt_subject + "_" + prompt_string)
-    h = hash_string(prompt_string + template_mode)
-    return f"{clean}_{template_mode}_{h}"
+#def make_file_name(prompt_subject, prompt_string, template_mode):
+#    clean = sanitize_filename(prompt_subject + "_" + prompt_string)
+#    h = hash_string(prompt_string + template_mode)
+#    return f"{clean}_{template_mode}_{h}"
 
 
 def save_pickle(obj, filename):
@@ -140,3 +140,15 @@ def load_pickle(filename):
             return pickle.load(f)
     except Exception as e:
         raise IOError(f"Failed to load pickle from {filename}: {e}")
+
+
+def js_distance(p: torch.Tensor, q: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """
+    Jensen-Shannon distance between p and q.
+    Returns sqrt(0.5*KL(p||m) + 0.5*KL(q||m)), where m = 0.5*(p+q).
+    """
+    m = 0.5 * (p + q)
+    kl_pm = torch.sum(p * (torch.log(p + eps) - torch.log(m + eps)))
+    kl_qm = torch.sum(q * (torch.log(q + eps) - torch.log(m + eps)))
+    jsd = 0.5 * (kl_pm + kl_qm)
+    return torch.sqrt(jsd)

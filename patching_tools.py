@@ -1,86 +1,24 @@
-# Core ML Libraries
-import torch
-import torch.nn.functional as F
-import numpy as np
-
-# Transformer Lens
-from transformer_lens import HookedTransformer
-import transformer_lens
-import transformer_lens.utils as utils
-
-# Hugging Face Transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-# Utilities
-import os
-import hashlib
-import yaml
-import pickle
-from typing import Dict, List, Tuple, Callable
-
-# Plotting & Progress
-import matplotlib.pyplot as plt
-from tqdm.auto import tqdm
-
-
-def save_pickle(obj, filename):
-    """
-    Save an object to a pickle file.
-
-    Args:
-        obj: The object to save.
-        filename (str): The name of the file to save the object to.
-    """
-    try:
-        with open(filename, 'wb') as f:
-            pickle.dump(obj, f)
-    except Exception as e:
-        raise IOError(f"Failed to save pickle to {filename}: {e}")
-
-def load_pickle(filename):
-    """
-    Load an object from a pickle file.
-
-    Args:
-        filename (str): The name of the file to load the object from.
-
-    Returns:
-        The loaded object.
-    """
-    if not os.path.exists(filename):
-        raise FileNotFoundError(f"No such file: {filename}")
-    try:
-        with open(filename, 'rb') as f:
-            return pickle.load(f)
-    except Exception as e:
-        raise IOError(f"Failed to load pickle from {filename}: {e}")
-
-
-def js_distance(p: torch.Tensor, q: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
-    """
-    Jensen-Shannon distance between p and q.
-    Returns sqrt(0.5*KL(p||m) + 0.5*KL(q||m)), where m = 0.5*(p+q).
-    """
-    m = 0.5 * (p + q)
-    kl_pm = torch.sum(p * (torch.log(p + eps) - torch.log(m + eps)))
-    kl_qm = torch.sum(q * (torch.log(q + eps) - torch.log(m + eps)))
-    jsd = 0.5 * (kl_pm + kl_qm)
-    return torch.sqrt(jsd)
+from tl_tools import *
+import glob
+from resid_diff_tools import load_metadata
 
 class ReasoningAnsweringComparator:
     def __init__(
         self,
         model: HookedTransformer,
         prompt: str,
-        eos_token: str = "</think>",
+        stop_think_token: str = "</think>",
         immediately_answer: bool = False
     ):
         """
         Build reference distributions p_ref_think and p_ref_ans from `model` on `prompt`.
+        Then evaluate the change in the model's probabilities during an intervention.
         """
         self.tokenizer = model.tokenizer
-        self.eos_token = eos_token
-        self.eos_id = self.tokenizer.encode(eos_token)[-1]
+        self.stop_think_token = stop_think_token
+        self.stop_think_id = self.tokenizer.encode(stop_think_token)[-1]
+        # TODO: formalize how specific tokens are handled -- use variable names rather than hardcoding
+        print(self.tokenizer.bos_token)
 
         # wrap prompt in chat format
         chat = [{"role": "user", "content": prompt}]
@@ -89,53 +27,78 @@ class ReasoningAnsweringComparator:
         self.think_prefix = self.tokenizer.apply_chat_template(
             chat, add_generation_prompt=True, tokenize=False
         )
-        # remove bos token
+        # remove bos token by default
         if self.think_prefix.startswith("<｜begin▁of▁sentence｜>"):
+            self.think_prefix = self.think_prefix[len("<｜begin▁of▁sentence｜>"):]
 
         # 2) ANSWER prefix (greedy to </think>)
         if not immediately_answer:
-            self.answer_prefix = self._greedy_think_generation(model, self.think_prefix)
-            if self.answer_prefix is None:
-                raise ValueError("Greedy generation failed to produce an answer.")
+            # first, have we already completed this prompt? 
+            prompt_hash = hash_string(prompt) 
+            matching_directory = glob.glob(f"resid_data/*_{prompt_hash}/")
+            if len(matching_directory) > 0:
+                # load the answer prefix from the matching directory
+                generated_token_ids = []
+                for m in load_metadata(os.path.join(matching_directory[0], "base_metadata.yaml")):
+                    if m['token_id'] == self.stop_think_id:
+                        break
+                    generated_token_ids.append(m['token_id'])
+                generated_token_ids.append(self.stop_think_id)
+                generated_string = self.tokenizer.decode(generated_token_ids)
+                print(generated_string)
+                assert not generated_string.startswith(self.tokenizer.bos_token)
+
+                self.answer_prefix = self.think_prefix + generated_string
+            else:
+                # generate answer prefix by greedy generation until we hit stop think
+                self.answer_prefix = self._greedy_think_generation(model, self.think_prefix)
+                if self.answer_prefix is None:
+                    raise ValueError("Greedy generation failed to produce an answer.")
+            # make sure the answer prefix ends with stop think
+            assert self.answer_prefix.endswith(self.stop_think_token)
         else:
+            # if immediately answer, just add </think> to the end of the think prefix
             self.answer_prefix = self.think_prefix + "\n</think>"
-        # answers always start with '\n\n'
+        
+        # answers always start with '\n\n', so we add this here to skip this zero entropy token
         self.answer_prefix += '\n\n'
 
         # 3) stash full-vocabulary reference distributions
         self.p_ref_think = self._get_full_dist(model, self.think_prefix)
         self.p_ref_ans   = self._get_full_dist(model, self.answer_prefix)
     
-    def give_think_answer(self, include_bos=False):
+    def give_think_answer(self, include_bos: bool = False) -> Dict[str, str]:
         """
-        Process think and answer prefixes based on BOS token inclusion preference.
-        
+        Return the 'think' and 'answer' prefixes, optionally ensuring the BOS token is present
+        or stripped.
+
         Args:
-            include_bos (bool): Whether to include the beginning-of-sentence token
-        
+            include_bos (bool): 
+                - If True, make sure each prefix starts with the BOS token.
+                - If False, remove any leading BOS token.
+
         Returns:
-            dict: Dictionary containing processed 'think' and 'answer' prefixes
+            Dict[str, str]: {"think": processed_think_prefix, "answer": processed_answer_prefix}
         """
-        think_answer_dict = {}
-        bos_token = "<｜begin▁of▁sentence｜>"
-        
-        # Process think prefix
-        if self.think_prefix.startswith(bos_token):
-            think_answer_dict["think"] = (
-                self.think_prefix if include_bos else self.think_prefix[len(bos_token):]
-            )
-        else:
-            think_answer_dict["think"] = self.think_prefix
-        
-        # Process answer prefix
-        if self.answer_prefix.startswith(bos_token):
-            think_answer_dict["answer"] = (
-                self.answer_prefix if include_bos else self.answer_prefix[len(bos_token):]
-            )
-        else:
-            think_answer_dict["answer"] = self.answer_prefix
-        
-        return think_answer_dict
+        # 1) Determine the BOS token used by the tokenizer (fallback if unavailable).
+        bos_token = getattr(self.tokenizer, "bos_token", None) or "<｜begin▁of▁sentence｜>"
+
+        def _process(text: str) -> str:
+            if include_bos:
+                # If we want BOS and it's missing, prepend it.
+                if not text.startswith(bos_token):
+                    return bos_token + text
+                return text
+            else:
+                # If we do NOT want BOS and it's present, strip it.
+                if text.startswith(bos_token):
+                    return text[len(bos_token):]
+                return text
+
+        return {
+            "think": _process(self.think_prefix),
+            "answer": _process(self.answer_prefix),
+        }
         
     def _greedy_think_generation(
         self,
@@ -143,19 +106,18 @@ class ReasoningAnsweringComparator:
         prefix: str
     ) -> str:
         
-        if prefix.startswith("<｜begin▁of▁sentence｜>"):
-            prepend_bos=False 
-        else:
-            prepend_bos=True
+        bos = getattr(self.tokenizer, "bos_token", "<｜begin▁of▁sentence｜>")
+        prepend_bos = not prefix.startswith(bos)
 
         out = model.generate(
             prefix,
             max_new_tokens=500,
             do_sample=False,
-            eos_token_id=self.eos_id,
+            eos_token_id=self.stop_think_id,
             prepend_bos=prepend_bos
         )
-        if not out.endswith(self.eos_token):
+        # make sure the answer prefix ends with stop think
+        if not out.endswith(self.stop_think_token):
             return None
         return out
 
@@ -163,7 +125,7 @@ class ReasoningAnsweringComparator:
         self,
         model: HookedTransformer,
         prefix: str,
-        fwd_hooks: List[Tuple[str, Callable]] = None
+        fwd_hooks: List[Tuple[str, Callable]] | None = None
     ) -> torch.Tensor:
         """
         Returns a 1-D tensor of next-token probabilities for the entire vocab.
@@ -686,43 +648,6 @@ def head_patch_delta_circuit_sweep(
 
     return baseline_score, single_score, heat
 
-
-def read_prompts(file_path="mds/reasoning-prompts.md"):
-    """
-    Read prompts from a text file and return them as a list of strings.
-    
-    Args:
-        file_path (str): Path to the file containing reasoning prompts
-        
-    Returns:
-        list: A list of strings, each containing a reasoning prompt
-    """
-    prompts = []
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                # Skip empty lines, headers, and category labels
-                line = line.strip()
-                if (line and 
-                    not line.startswith('#') and 
-                    not line.startswith('##') and
-                    not line == ""):
-                    
-                    # Extract the prompt text by removing the number and period
-                    parts = line.split('. ', 1)
-                    if len(parts) > 1 and parts[0].isdigit():
-                        prompt = parts[1]
-                    else:
-                        prompt = line
-                        
-                    prompts.append(prompt)
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.")
-    except Exception as e:
-        print(f"Error reading prompts: {e}")
-    
-    return prompts
 
 
 if __name__ == "__main__":
