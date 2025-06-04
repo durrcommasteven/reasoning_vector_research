@@ -281,11 +281,6 @@ def collect_token_data(
 
     # collect the tokens appearing in each subset
     for folder in data_folders:
-        # reasoning_boosted is shortened to boosted for metadata
-        if mode1 == 'reasoning_boosted':
-            mode1 = 'boosted'
-        if mode2 == 'reasoning_boosted':
-            mode2 = 'boosted'
         meta1 = load_metadata(os.path.join(folder, f"{mode1}_metadata.yaml")) or []
         meta2 = load_metadata(os.path.join(folder, f"{mode2}_metadata.yaml")) or []
         for m in meta1:
@@ -725,9 +720,19 @@ def run_analysis(
     
 # run the comparisons
 if __name__ == "__main__":
+    # math specific
     run_analysis(
-        data_root="test_resid_data",
-        out_root="test_resid_comparisons",
+        data_root="reasoning_resid_data",
+        out_root="reasoning_resid_comparisons",
         subjects=['math'],
-        comparisons=COMPARISONS
+        comparisons=COMPARISONS,
+        layer_batch_size=1,
+    )
+    # all prompts
+    run_analysis(
+        data_root="reasoning_resid_data",
+        out_root="reasoning_resid_comparisons",
+        subjects=None,
+        comparisons=COMPARISONS,
+        layer_batch_size=1,
     )
