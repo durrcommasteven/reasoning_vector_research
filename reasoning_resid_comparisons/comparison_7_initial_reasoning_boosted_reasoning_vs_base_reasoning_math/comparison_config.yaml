@@ -1,0 +1,7 @@
+mode1: reasoning_boosted
+mode2: base
+name: enhanced_reason_vs_base_reason_initial
+normalize: false
+region1: reasoning
+region2: reasoning
+subset: initial

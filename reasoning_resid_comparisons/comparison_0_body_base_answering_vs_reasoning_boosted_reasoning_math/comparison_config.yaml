@@ -1,0 +1,7 @@
+mode1: base
+mode2: reasoning_boosted
+name: base_answer_vs_enhanced_reason_body
+normalize: true
+region1: answering
+region2: reasoning
+subset: body

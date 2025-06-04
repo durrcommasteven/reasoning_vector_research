@@ -1,0 +1,7 @@
+mode1: base
+mode2: immediate_answer
+name: base_reason_vs_immediate_answer_initial
+normalize: false
+region1: reasoning
+region2: answering
+subset: initial
