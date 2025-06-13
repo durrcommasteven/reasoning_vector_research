@@ -160,11 +160,11 @@ if [ $? -ne 0 ]; then
     return 1
 fi
 
-#setup_git
-#setup_hf
-#setup_venv
-#install_requirements
+setup_git
+setup_hf
+setup_venv
+install_requirements
 #setup_gcs_key
-download_resid_data
+#download_resid_data
 
 echo "All set up!"
