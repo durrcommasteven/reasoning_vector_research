@@ -2,12 +2,12 @@ from residual_stream_collection_tools import *
 
 model = load_llama8br1()
 
-prompt_list = read_prompts(output_type=None)
+prompt_list = read_prompts('gsm8k_100')#output_type=None)
 
 run_experiments(
     model,
     prompts=prompt_list,
-    save_root="./reasoning_resid_data",
+    save_root="./throwaway_test", #"./reasoning_resid_data",
     max_new_tokens = 500,
-    template_modes = ["base", "immediate_answer", "reasoning_boosted"]
+    template_modes = ["base", "immediate_answer"]#, "reasoning_boosted"]
 )

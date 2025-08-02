@@ -22,7 +22,7 @@ def format_prompt(model, raw_prompt: str, mode: str, remove_bos: bool = True) ->
            tokenize=False)
     if remove_bos:
         base = base.replace(model.tokenizer.bos_token, "")
-    if mode == "immediate_answer":
+    if mode == "immediate_answer" or mode == "immediately_answer":
         base += "\n</think>\n\n"
     return base
 

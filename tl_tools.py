@@ -25,7 +25,54 @@ from tqdm.auto import tqdm
 import re
 from typing import List, Tuple, Optional
 
+def load_llama8br1(local_cache_dir: str = "./hf_cache") -> HookedTransformer:
+    torch.set_grad_enabled(False)
+    device = utils.get_device()
 
+    reference_model_path = "meta-llama/Llama-3.1-8B"
+    baseline_model_path = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    local_baseline_path = os.path.join(local_cache_dir, "deepseek-8b")
+
+    # Try to load from local path
+    try:
+        baseline_model_hf = AutoModelForCausalLM.from_pretrained(
+            baseline_model_path,
+            torch_dtype=torch.bfloat16,
+            cache_dir=local_baseline_path,
+            local_files_only=True,  # <– avoids internet
+        )
+        baseline_model_tokenizer = AutoTokenizer.from_pretrained(
+            baseline_model_path,
+            cache_dir=local_baseline_path,
+            local_files_only=True,
+        )
+        print("Loaded model and tokenizer from local cache.")
+    except Exception as e:
+        print(f"Local load failed: {e}")
+        print("Falling back to online download...")
+        baseline_model_hf = AutoModelForCausalLM.from_pretrained(
+            baseline_model_path,
+            torch_dtype=torch.bfloat16,
+            cache_dir=local_baseline_path,
+            local_files_only=False,
+        )
+        baseline_model_tokenizer = AutoTokenizer.from_pretrained(
+            baseline_model_path,
+            cache_dir=local_baseline_path,
+            local_files_only=False,
+        )
+
+    model = HookedTransformer.from_pretrained_no_processing(
+        reference_model_path,
+        hf_model=baseline_model_hf,
+        tokenizer=baseline_model_tokenizer,
+        device=device,
+        move_to_device=True,
+    )
+
+    return model
+
+"""
 def load_llama8br1():
     torch.set_grad_enabled(False)
 
@@ -48,6 +95,13 @@ def load_llama8br1():
     )
 
     return model
+"""
+
+def extract_num_prompts(s: str) -> int:
+    try:
+        return int(s.split('_')[-1])
+    except (ValueError, IndexError):
+        raise ValueError(f"String '{s}' is not in the correct format (e.g., 'prefix_123')")
 
 
 def read_prompts(
@@ -67,6 +121,19 @@ def read_prompts(
         A list of tuples. Each tuple contains the output type (the heading or None)
         and the corresponding prompt.
     """
+    if 'gsm8k' in output_type:
+        # take from gsm8k 
+        from datasets import load_dataset
+        ds = load_dataset("openai/gsm8k", "main")
+
+        if output_type != 'gsm8k':
+            # expect a number as well to indicate the number of prompts to select
+            num_prompts = extract_num_prompts(output_type)
+        else:
+            num_prompts = len(ds['train']['question'])
+        
+        return [(output_type, prompt) for prompt in ds['train']['question'][:num_prompts]]
+    
     try:
         with open(path_to_prompts, "r") as f:
             content = f.read()
@@ -88,7 +155,7 @@ def read_prompts(
             prompt_text = prompt_match.group(1).strip()
             if output_type is None:
                 prompts.append((current_heading.lower(), prompt_text))
-            elif current_heading == output_type:
+            elif current_heading.lower() == output_type.lower():
                 prompts.append((output_type.lower(), prompt_text))
 
     return prompts

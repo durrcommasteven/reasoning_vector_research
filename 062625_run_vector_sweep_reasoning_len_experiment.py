@@ -65,8 +65,6 @@ def analyze_head_attention_sources(model, head, prompt: str, source_idx: int):
     finally:
         model.reset_hooks()
 
-import torch
-
 def simple_patch_generate(
     patch_prompt: str,
     target_heads: list[tuple[int, int]] | tuple[int, int],
@@ -188,7 +186,6 @@ immediate_answer_prompt = format_prompt(model, "Whats the fifth prime?", "immedi
 
 print(reason_prompt)
 print(immediate_answer_prompt)
-
 
 bos_values = analyze_head_attention_sources(
     model, 

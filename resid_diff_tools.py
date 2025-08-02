@@ -9,90 +9,152 @@ from tqdm import tqdm
 
 # -----------------------------------------
 # Configuration of comparisons
+
+# below, COMPARISONS is a list of dicts 
+# each specifying the type of comparison to be performed 
+
+# there are simple comparisons 
+# and more advanced comparisons 
+
+# These are specified as the first part of the name field
+
 # -----------------------------------------
-COMPARISONS = [
-    {
-        "name": "base_answer_vs_enhanced_reason_body",
-        "mode1": "base",
-        "region1": "answering",
-        "mode2": "reasoning_boosted",
-        "region2": "reasoning",
-        "subset": "body",
-        "normalize": True
-    },
-    {
-        "name": "base_reason_vs_base_answer_body",
-        "mode1": "base",
-        "region1": "reasoning",
-        "mode2": "base",
-        "region2": "answering",
-        "subset": "body",
-        "normalize": True
-    },
-    {
-        "name": "enhanced_reason_vs_enhanced_answer_body",
-        "mode1": "reasoning_boosted",
-        "region1": "reasoning",
-        "mode2": "reasoning_boosted",
-        "region2": "answering",
-        "subset": "body",
-        "normalize": True
-    },
-    {
-        "name": "base_reason_vs_immediate_answer_body",
-        "mode1": "base",
-        "region1": "reasoning",
-        "mode2": "immediate_answer",
-        "region2": "answering",
-        "subset": "body",
-        "normalize": True
-    },
-    {
-        "name": "enhanced_reason_vs_base_reason_body",
-        "mode1": "reasoning_boosted",
-        "region1": "reasoning",
-        "mode2": "base",
-        "region2": "reasoning",
-        "subset": "body",
-        "normalize": True
-    },
-    {
-        "name": "base_reason_vs_base_answer_initial",
-        "mode1": "base",
-        "region1": "reasoning",
-        "mode2": "base",
-        "region2": "answering",
-        "subset": "initial",
-        "normalize": False
-    },
-    {
-        "name": "enhanced_reason_vs_enhanced_answer_initial",
-        "mode1": "reasoning_boosted",
-        "region1": "reasoning",
-        "mode2": "reasoning_boosted",
-        "region2": "answering",
-        "subset": "initial",
-        "normalize": False
-    },
-    {
-        "name": "enhanced_reason_vs_base_reason_initial",
-        "mode1": "reasoning_boosted",
-        "region1": "reasoning",
-        "mode2": "base",
-        "region2": "reasoning",
-        "subset": "initial",
-        "normalize": False
-    },
-    {
-        "name": "base_reason_vs_immediate_answer_initial",
-        "mode1": "base",
-        "region1": "reasoning",
-        "mode2": "immediate_answer",
-        "region2": "answering",
-        "subset": "initial",
-        "normalize": False
-    }
-]
+advanced_analysis = False
+
+if not advanced_analysis:
+    COMPARISONS = [
+        # compare reasoning text to answering text using the normal prompt
+        # without and with token normalization
+        # note: normalize = True performs analyses with and without token normalization
+        {
+            "name": "base_reason_vs_base_answer_body",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "answering",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "base_reason_vs_immediate_answer_body",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "immediate_answer",
+            "region2": "answering",
+            "subset": "body",
+            "normalize": True
+        },
+        # perform the same set of analyses, but only at the initial token 
+        # that is, the final token of the formatted prompts, either \n or \n\n
+        # note that these cannot be analysed with token normalization
+        {
+            "name": "base_reason_vs_base_answer_initial",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "answering",
+            "subset": "initial",
+            "normalize": False
+        },
+        {
+            "name": "base_reason_vs_immediate_answer_initial",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "immediate_answer",
+            "region2": "answering",
+            "subset": "initial",
+            "normalize": False
+        },
+
+    ]
+else:
+    # include analyses with enhanced reasoning 
+    # where formatted promtps include "Please reason step by step."
+    # which I refer to as 'enhanced'
+    COMPARISONS = [
+        {
+            "name": "base_answer_vs_enhanced_reason_body",
+            "mode1": "base",
+            "region1": "answering",
+            "mode2": "reasoning_boosted",
+            "region2": "reasoning",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "base_reason_vs_base_answer_body",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "answering",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "enhanced_reason_vs_enhanced_answer_body",
+            "mode1": "reasoning_boosted",
+            "region1": "reasoning",
+            "mode2": "reasoning_boosted",
+            "region2": "answering",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "base_reason_vs_immediate_answer_body",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "immediate_answer",
+            "region2": "answering",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "enhanced_reason_vs_base_reason_body",
+            "mode1": "reasoning_boosted",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "reasoning",
+            "subset": "body",
+            "normalize": True
+        },
+        {
+            "name": "base_reason_vs_base_answer_initial",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "answering",
+            "subset": "initial",
+            "normalize": False
+        },
+        {
+            "name": "base_reason_vs_immediate_answer_initial",
+            "mode1": "base",
+            "region1": "reasoning",
+            "mode2": "immediate_answer",
+            "region2": "answering",
+            "subset": "initial",
+            "normalize": False
+        },
+        {
+            "name": "enhanced_reason_vs_enhanced_answer_initial",
+            "mode1": "reasoning_boosted",
+            "region1": "reasoning",
+            "mode2": "reasoning_boosted",
+            "region2": "answering",
+            "subset": "initial",
+            "normalize": False
+        },
+        {
+            "name": "enhanced_reason_vs_base_reason_initial",
+            "mode1": "reasoning_boosted",
+            "region1": "reasoning",
+            "mode2": "base",
+            "region2": "reasoning",
+            "subset": "initial",
+            "normalize": False
+        },
+    ]
+
 # -----------------------------------------
 # Utility Functions
 # -----------------------------------------
@@ -127,7 +189,7 @@ def lda_per_layer_with_proj(
 
     Args:
         Either 
-            dict1: mapping → np.ndarray of shape (B_i, L, D).  All arrays share the same L, D.
+            dict1: mapping to np.ndarray of shape (B_i, L, D).  All arrays share the same L, D.
             dict2: same type of mapping for class 2.
         Or
             a np.ndarray of shape (B_total, L, D). 
@@ -202,13 +264,14 @@ def lda_per_layer_with_proj(
     for ℓ in range(L):
         w[ℓ] = np.linalg.solve(S_w[ℓ], delta_mu[ℓ])
 
+    normed_w = w / np.linalg.norm(w, axis=-1, keepdims=True)
     # 6) Compute projections along the direction w[ℓ]:
     #    proj1[n,ℓ] = X1[n,ℓ,:] · w[ℓ],  for n=0..N1−1
     #    proj2[m,ℓ] = X2[m,ℓ,:] · w[ℓ],  for m=0..N2−1
     #
     # We can do this with einsum, yielding shape (N1, L) and (N2, L)
-    proj1_flat = np.einsum('nld,ld->nl', X1, w)  # (N1, L)
-    proj2_flat = np.einsum('nld,ld->nl', X2, w)  # (N2, L)
+    proj1_flat = np.einsum('nld,ld->nl', X1, normed_w)  # (N1, L)
+    proj2_flat = np.einsum('nld,ld->nl', X2, normed_w)  # (N2, L)
 
     # Finally, reshape to (N1, L, 1) and (N2, L, 1)
     proj1 = proj1_flat[:, :, None]  # (N1, L, 1)
@@ -270,7 +333,11 @@ def collect_token_data(
     elif isinstance(subject, str):
         data_folders = [f for f in os.listdir(data_root) if f.startswith(subject.lower())]
     elif isinstance(subject, list):
-        data_folders = [f for f in os.listdir(data_root) if f.split('_')[0] in subject]
+        data_folders = []
+        for s in subject:
+            for f in os.listdir(data_root):
+                if f.startswith(s):
+                    data_folders.append(f)
     else:
         raise ValueError(f"Invalid subject type: {type(subject)}")
 
@@ -487,6 +554,7 @@ def compute_raw_diffs(
     
     # compute the mean_diff
     mean_diff = np.mean(resids_1, axis=0) - np.mean(resids_2, axis=0)
+    normed_mean_diff = mean_diff / np.linalg.norm(mean_diff, axis=-1, keepdims=True)
     
     # now we'll compute the lda direction
     w_2_to_1, proj1, proj2, _ = lda_per_layer_with_proj(
@@ -497,8 +565,8 @@ def compute_raw_diffs(
     
     # additionally, project the data along the mean_diff direction for each layer
     # with shape (num_samples, num_layers, 1)
-    proj1_mean_diff = np.einsum('nld,ld->nl', resids_1, mean_diff)[:, :, None]
-    proj2_mean_diff = np.einsum('nld,ld->nl', resids_2, mean_diff)[:, :, None]
+    proj1_mean_diff = np.einsum('nld,ld->nl', resids_1, normed_mean_diff)[:, :, None]
+    proj2_mean_diff = np.einsum('nld,ld->nl', resids_2, normed_mean_diff)[:, :, None]
     
     return {
         'mean_diff': mean_diff,
@@ -521,12 +589,16 @@ def run_analysis(
 ):
     """
     Perform analyses one layer at a time with minimal memory usage.
+    comparisons is a list of dicts
+    each a comparison to perform
 
     If comparison['normalize'] is true, perform both token‐normalized and raw diffs.
     If comparison['normalize'] is false, perform only raw diffs.
 
     layer_batch_size is the number of layers to process at a time.
-    There are a total of num_layers layers, and we process them in batches of layer_batch_size.
+    i.e. There are a total of num_layers layers, and we process them 
+    in batches of layer_batch_size.
+
     The final output combines the results across all layers into:
       • mean_diff_raw: shape (num_layers, d_model)
       • lda_dir_raw:   shape (num_layers, d_model)
@@ -623,19 +695,21 @@ def run_analysis(
 
         # Prepare accumulators
         # Raw diffs
-        mean_raw_batches = []
-        lda_raw_batches = []
-        proj1_raw_batches = []
-        proj2_raw_batches = []
+        mean_batches_raw = []
+        proj1_mean_batches_raw = []
+        proj2_mean_batches_raw = []
+        lda_batches_raw = []
+        proj1_lda_batches_raw = []
+        proj2_lda_batches_raw = []
 
         # Normalized diffs (if requested)
         if do_normalized:
-            mean_norm_batches = []
-            proj1_mean_norm_batches = []
-            proj2_mean_norm_batches = []
-            lda_norm_batches = []
-            proj1_lda_batches = []
-            proj2_lda_batches = []
+            mean_batches_normed = []
+            proj1_mean_batches_normed = []
+            proj2_mean_batches_normed = []
+            lda_batches_normed = []
+            proj1_lda_batches_normed = []
+            proj2_lda_batches_normed = []
 
         # Prepare layer indices and batch count
         layer_indices = list(range(num_layers))
@@ -665,55 +739,63 @@ def run_analysis(
                 # norm_results keys:
                 #  'mean_diff', 'proj1_mean_diff', 'proj2_mean_diff',
                 #  'lda_dir',  'proj1_lda',       'proj2_lda'
-                mean_norm_batches.append(norm_results["mean_diff"])           # (len(batch), d_model)
-                proj1_mean_norm_batches.append(norm_results["proj1_mean_diff"])  # (N1, len(batch), 1)
-                proj2_mean_norm_batches.append(norm_results["proj2_mean_diff"])  # (N2, len(batch), 1)
-                lda_norm_batches.append(norm_results["lda_dir"])             # (len(batch), d_model)
-                proj1_lda_batches.append(norm_results["proj1_lda"])          # (N1, len(batch), 1)
-                proj2_lda_batches.append(norm_results["proj2_lda"])          # (N2, len(batch), 1)
+                mean_batches_normed.append(norm_results["mean_diff"])           # (len(batch), d_model)
+                proj1_mean_batches_normed.append(norm_results["proj1_mean_diff"])  # (N1, len(batch), 1)
+                proj2_mean_batches_normed.append(norm_results["proj2_mean_diff"])  # (N2, len(batch), 1)
+                lda_batches_normed.append(norm_results["lda_dir"])             # (len(batch), d_model)
+                proj1_lda_batches_normed.append(norm_results["proj1_lda"])          # (N1, len(batch), 1)
+                proj2_lda_batches_normed.append(norm_results["proj2_lda"])          # (N2, len(batch), 1)
 
             # 4) Always run raw diffs on these layers
             if verbose:
                 print(f"Computing raw diffs for layers {start} to {end}")
+            
             raw_results = compute_raw_diffs(
                 data_root=data_root,
                 comparison=comp,
                 layer_idxs=batch_layer_idxs,
                 subject=subjects_param,
             )
+
             # raw_results keys: 'mean_diff', 'lda_dir', 'proj1', 'proj2'
-            mean_raw_batches.append(raw_results["mean_diff"])   # (len(batch), d_model)
-            lda_raw_batches.append(raw_results["lda_dir"])     # (len(batch), d_model)
-            proj1_raw_batches.append(raw_results["proj1"])     # (N1, len(batch), 1)
-            proj2_raw_batches.append(raw_results["proj2"])     # (N2, len(batch), 1)
+            mean_batches_raw.append(raw_results["mean_diff"])   # (len(batch), d_model)
+            proj1_mean_batches_raw.append(raw_results["proj1_mean_diff"])  # (N1, len(batch), 1)
+            proj2_mean_batches_raw.append(raw_results["proj2_mean_diff"])  # (N2, len(batch), 1)
+            lda_batches_raw.append(raw_results["lda_dir"])     # (len(batch), d_model)
+            proj1_lda_batches_raw.append(raw_results["proj1"])     # (N1, len(batch), 1)
+            proj2_lda_batches_raw.append(raw_results["proj2"])     # (N2, len(batch), 1)
 
         # 5) Concatenate raw diffs along the layer axis
-        mean_diff_raw = np.concatenate(mean_raw_batches, axis=0)   # (num_layers, d_model)
-        lda_dir_raw   = np.concatenate(lda_raw_batches,   axis=0)   # (num_layers, d_model)
-        proj1_raw_all = np.concatenate(proj1_raw_batches, axis=1)   # (N1, num_layers, 1)
-        proj2_raw_all = np.concatenate(proj2_raw_batches, axis=1)   # (N2, num_layers, 1)
+        mean_diff_raw = np.concatenate(mean_batches_raw, axis=0)   # (num_layers, d_model)
+        proj1_mean_all_raw = np.concatenate(proj1_mean_batches_raw, axis=1)   # (N1, num_layers, 1)
+        proj2_mean_all_raw = np.concatenate(proj2_mean_batches_raw, axis=1)   # (N2, num_layers, 1)
+        lda_dir_raw   = np.concatenate(lda_batches_raw,   axis=0)   # (num_layers, d_model)
+        proj1_lda_all_raw = np.concatenate(proj1_lda_batches_raw, axis=1)   # (N1, num_layers, 1)
+        proj2_lda_all_raw = np.concatenate(proj2_lda_batches_raw, axis=1)   # (N2, num_layers, 1)
 
         # Save raw results
         np.save(os.path.join(out_dir, "mean_diff_raw.npy"), mean_diff_raw)
-        np.save(os.path.join(out_dir, "lda_dir_raw.npy"),   lda_dir_raw)
-        np.save(os.path.join(out_dir, "proj1_raw.npy"),      proj1_raw_all)
-        np.save(os.path.join(out_dir, "proj2_raw.npy"),      proj2_raw_all)
+        np.save(os.path.join(out_dir, "proj1_mean_raw.npy"), proj1_mean_all_raw)
+        np.save(os.path.join(out_dir, "proj2_mean_raw.npy"), proj2_mean_all_raw)
+        np.save(os.path.join(out_dir, "lda_dir_raw.npy"), lda_dir_raw)
+        np.save(os.path.join(out_dir, "proj1_lda_raw.npy"), proj1_lda_all_raw)
+        np.save(os.path.join(out_dir, "proj2_lda_raw.npy"), proj2_lda_all_raw)
 
         # 6) If normalized, concatenate and save those too
         if do_normalized:
-            mean_diff_norm        = np.concatenate(mean_norm_batches, axis=0)       # (num_layers, d_model)
-            proj1_mean_diff_norm  = np.concatenate(proj1_mean_norm_batches, axis=1) # (N1, num_layers, 1)
-            proj2_mean_diff_norm  = np.concatenate(proj2_mean_norm_batches, axis=1) # (N2, num_layers, 1)
-            lda_dir_norm          = np.concatenate(lda_norm_batches, axis=0)        # (num_layers, d_model)
-            proj1_lda_norm        = np.concatenate(proj1_lda_batches, axis=1)       # (N1, num_layers, 1)
-            proj2_lda_norm        = np.concatenate(proj2_lda_batches, axis=1)       # (N2, num_layers, 1)
+            mean_diff_normed        = np.concatenate(mean_batches_normed, axis=0)       # (num_layers, d_model)
+            proj1_mean_all_normed  = np.concatenate(proj1_mean_batches_normed, axis=1) # (N1, num_layers, 1)
+            proj2_mean_all_normed  = np.concatenate(proj2_mean_batches_normed, axis=1) # (N2, num_layers, 1)
+            lda_dir_normed          = np.concatenate(lda_batches_normed, axis=0)        # (num_layers, d_model)
+            proj1_lda_normed        = np.concatenate(proj1_lda_batches_normed, axis=1)       # (N1, num_layers, 1)
+            proj2_lda_normed        = np.concatenate(proj2_lda_batches_normed, axis=1)       # (N2, num_layers, 1)
 
-            np.save(os.path.join(out_dir, "mean_diff_norm.npy"),          mean_diff_norm)
-            np.save(os.path.join(out_dir, "proj1_mean_diff_norm.npy"),   proj1_mean_diff_norm)
-            np.save(os.path.join(out_dir, "proj2_mean_diff_norm.npy"),   proj2_mean_diff_norm)
-            np.save(os.path.join(out_dir, "lda_dir_norm.npy"),           lda_dir_norm)
-            np.save(os.path.join(out_dir, "proj1_lda_norm.npy"),         proj1_lda_norm)
-            np.save(os.path.join(out_dir, "proj2_lda_norm.npy"),         proj2_lda_norm)
+            np.save(os.path.join(out_dir, "mean_diff_normed.npy"),          mean_diff_normed)
+            np.save(os.path.join(out_dir, "proj1_mean_diff_normed.npy"),   proj1_mean_all_normed)
+            np.save(os.path.join(out_dir, "proj2_mean_diff_normed.npy"),   proj2_mean_all_normed)
+            np.save(os.path.join(out_dir, "lda_dir_normed.npy"),           lda_dir_normed)
+            np.save(os.path.join(out_dir, "proj1_lda_normed.npy"),         proj1_lda_normed)
+            np.save(os.path.join(out_dir, "proj2_lda_normed.npy"),         proj2_lda_normed)
 
         if verbose:
             print(f" → Saved results for comparison '{comp_folder_name}' in {out_dir}")
@@ -722,17 +804,9 @@ def run_analysis(
 if __name__ == "__main__":
     # math specific
     run_analysis(
-        data_root="reasoning_resid_data",
-        out_root="reasoning_resid_comparisons",
-        subjects=['math'],
-        comparisons=COMPARISONS,
-        layer_batch_size=1,
-    )
-    # all prompts
-    run_analysis(
-        data_root="reasoning_resid_data",
-        out_root="reasoning_resid_comparisons",
-        subjects=None,
+        data_root="./throwaway_test", #reasoning_resid_data",
+        out_root="./throwaway_comps", #"reasoning_resid_comparisons",
+        subjects=['gsm8k_2'],
         comparisons=COMPARISONS,
         layer_batch_size=1,
     )
