@@ -5,65 +5,67 @@ torch.set_grad_enabled(False)
 
 model = load_llama8br1()
 
+
 def analyze_head_attention_sources(model, head, prompt: str, source_idx: int):
     """
     Analyze what this head's OV circuit would contribute from one specific source position.
-    
+
     Args:
         model: HookedTransformer model
-        head: (layer_idx, head_idx) tuple  
+        head: (layer_idx, head_idx) tuple
         prompt: Input prompt
         source_idx: The source position to analyze (can be negative for indexing from end)
-        
+
     Returns:
         dict: Single contribution result
     """
-    
+
     layer_idx, head_idx = head
     captured_resid_pre = None
-    
+
     def hook_resid_pre(activation, hook):
         nonlocal captured_resid_pre
         captured_resid_pre = activation.detach().clone()
         return activation
-    
+
     model.add_hook(f"blocks.{layer_idx}.hook_resid_pre", hook_resid_pre)
-    
+
     try:
         # Tokenize with explicit BOS control
         tokens = model.to_tokens(prompt, prepend_bos=True)
-        
+
         with torch.no_grad():
             _ = model.forward(tokens)
-        
+
         # Handle negative indexing
         seq_len = captured_resid_pre.shape[1]
         if source_idx < 0:
             source_idx = seq_len + source_idx
-            
+
         # Get OV matrix directly from TransformerLens
         W_OV = model.OV[layer_idx, head_idx]  # (d_model, d_model)
-        
+
         # Compute contribution from the specific source position
         source_resid = captured_resid_pre[0, source_idx, :]
         contribution = source_resid @ W_OV
-        
-        # Get token string for this position  
+
+        # Get token string for this position
         token_strings = model.to_str_tokens(tokens[0])  # Use the same tokenized input
-        
+
         result = {
-            'vector': contribution,
-            'norm': torch.norm(contribution).item(),
-            'token': token_strings[source_idx],
-            'source_idx': source_idx
+            "vector": contribution,
+            "norm": torch.norm(contribution).item(),
+            "token": token_strings[source_idx],
+            "source_idx": source_idx,
         }
 
-        print("target_token = ",token_strings[source_idx])
-        
+        print("target_token = ", token_strings[source_idx])
+
         return result
-        
+
     finally:
         model.reset_hooks()
+
 
 def simple_patch_generate(
     patch_prompt: str,
@@ -97,11 +99,17 @@ def simple_patch_generate(
         heads: list[tuple[int, int]] = [target_heads]
     else:
         heads = target_heads
-    
+
     # for each head, assert that the first token is not a bos token
     if base_prompt is not None:
-        assert model.to_tokens(base_prompt, prepend_bos=False)[0, 0] != model.tokenizer.bos_token_id, "Base prompt must not start with BOS token"
-    assert model.to_tokens(patch_prompt, prepend_bos=False)[0, 0] != model.tokenizer.bos_token_id, "Patch prompt must not start with BOS token"
+        assert (
+            model.to_tokens(base_prompt, prepend_bos=False)[0, 0]
+            != model.tokenizer.bos_token_id
+        ), "Base prompt must not start with BOS token"
+    assert (
+        model.to_tokens(patch_prompt, prepend_bos=False)[0, 0]
+        != model.tokenizer.bos_token_id
+    ), "Patch prompt must not start with BOS token"
 
     # — Stage 1: collect base z’s if requested —
     stored_z: Dict[tuple[int, int], torch.Tensor] = {}
@@ -110,6 +118,7 @@ def simple_patch_generate(
         # hook each layer’s attn.z to grab only the last token
         for layer_idx, head_idx in heads:
             hook_name = f"blocks.{layer_idx}.attn.hook_z"
+
             def make_save(layer_idx: int, head_idx: int):
                 def save_hook(z: torch.Tensor, hook=None) -> torch.Tensor:
                     # z: (1, seq_len, n_heads, head_dim)
@@ -117,17 +126,19 @@ def simple_patch_generate(
                         z[0, -1, head_idx, :].detach().cpu().clone()
                     )
                     return z
+
                 return save_hook
+
             fn = make_save(layer_idx, head_idx)
             model.add_hook(hook_name, fn)
 
         # run base_prompt through the model (no new tokens needed)
         tokens = model.to_tokens(base_prompt, prepend_bos=True)
-        
+
         # collect the final z values
         with torch.no_grad():
             _ = model.forward(tokens)
-        
+
         # we've collected the z values, so we can remove the hooks
         model.reset_hooks()
 
@@ -137,6 +148,7 @@ def simple_patch_generate(
     prompt_len = tokens_patch.shape[1]
     for layer_idx, head_idx in heads:
         hook_name = f"blocks.{layer_idx}.attn.hook_z"
+
         def make_patch(layer_idx: int, head_idx: int):
             def patch_hook(z: torch.Tensor, hook=None) -> torch.Tensor:
                 # only override at the final prompt index
@@ -148,8 +160,9 @@ def simple_patch_generate(
                         vec = stored_z[(layer_idx, head_idx)].to(z.device) * scale
                         z[0, -1, head_idx, :] = vec
                 return z
+
             return patch_hook
-        
+
         fn = make_patch(layer_idx, head_idx)
         model.add_hook(hook_name, fn)
 
@@ -157,13 +170,16 @@ def simple_patch_generate(
     if injection_tensor is not None:
         for layer_idx, _ in heads:
             hook_name = f"blocks.{layer_idx}.hook_resid_mid"
+
             def make_inject():
                 def inject_hook(out: torch.Tensor, hook=None) -> torch.Tensor:
                     # out: (1, seq_len, d_model)
                     if out.shape[1] == prompt_len:
                         out[0, -1, :] += injection_tensor.to(out.device)
                     return out
+
                 return inject_hook
+
             fn = make_inject()
             model.add_hook(hook_name, fn)
 
@@ -182,25 +198,26 @@ def simple_patch_generate(
 
 reason_prompt = format_prompt(model, "Whats the fifth prime?", "reason")
 
-immediate_answer_prompt = format_prompt(model, "Whats the fifth prime?", "immediate_answer")
+immediate_answer_prompt = format_prompt(
+    model, "Whats the fifth prime?", "immediate_answer"
+)
 
 print(reason_prompt)
 print(immediate_answer_prompt)
 
 bos_values = analyze_head_attention_sources(
-    model, 
-    (2, 17), 
-    prompt = format_prompt(model, "Whats the fifth prime?", "immediate_answer"),
-    source_idx = 0
+    model,
+    (2, 17),
+    prompt=format_prompt(model, "Whats the fifth prime?", "immediate_answer"),
+    source_idx=0,
 )
 
 final_nn_values = analyze_head_attention_sources(
-    model, 
-    (2, 17), 
-    prompt = format_prompt(model, "Whats the fifth prime?", "immediate_answer"),
-    source_idx = -1
+    model,
+    (2, 17),
+    prompt=format_prompt(model, "Whats the fifth prime?", "immediate_answer"),
+    source_idx=-1,
 )
-
 
 
 import numpy as np
@@ -239,11 +256,14 @@ class GenerationCollector:
         """
         target = Path(filepath) if filepath is not None else self.filepath
         with target.open("wb") as f:
-            pickle.dump({
-                'knob_values': self.knob_values,
-                'outputs': self.outputs,
-                'lengths': self.lengths
-            }, f)
+            pickle.dump(
+                {
+                    "knob_values": self.knob_values,
+                    "outputs": self.outputs,
+                    "lengths": self.lengths,
+                },
+                f,
+            )
 
     @classmethod
     def load(cls, filepath: Union[str, Path]) -> "GenerationCollector":
@@ -255,14 +275,15 @@ class GenerationCollector:
             data = pickle.load(f)
 
         collector = cls(filepath=target)
-        collector.knob_values = data.get('knob_values', [])
-        collector.outputs = data.get('outputs', [])
-        collector.lengths = data.get('lengths', [])
+        collector.knob_values = data.get("knob_values", [])
+        collector.outputs = data.get("outputs", [])
+        collector.lengths = data.get("lengths", [])
         return collector
 
 
 # a string, file-safe version of the current date
 import datetime
+
 date_str = datetime.datetime.now().strftime("%Y%m%d")
 
 # Define sweep and output collector
@@ -270,8 +291,11 @@ reason_knob_values = np.linspace(0, 5, 10)
 output_file = f"reason_prompt_reason_vector_sweep_{date_str}.pkl"
 collector = GenerationCollector(filepath=output_file)
 
+reps = 3  # 50
+temp = 0.6
+
 # Run sweep
-for rep in range(50):
+for rep in range(reps):
     for knob_value in reason_knob_values:
         out = simple_patch_generate(
             patch_prompt=reason_prompt,
@@ -279,8 +303,10 @@ for rep in range(50):
             base_prompt=None,
             max_new_tokens=1000,
             scale=1,
-            injection_tensor=(knob_value * bos_values['vector'] / bos_values['vector'].norm(dim=0)),
-            temp=0.6,
+            injection_tensor=(
+                knob_value * bos_values["vector"] / bos_values["vector"].norm(dim=0)
+            ),
+            temp=temp,
         )
         length = len(model.to_str_tokens(out))
         collector.add(knob_value, out, length)
@@ -293,7 +319,9 @@ output_file = f"reason_prompt_answer_vector_sweep_{date_str}.pkl"
 collector = GenerationCollector(filepath=output_file)
 
 # Run sweep using nested rep then knob_value loops
-for rep in range(50):
+
+
+for rep in range(reps):
     for knob_value in reason_knob_values:
         current_out = simple_patch_generate(
             patch_prompt=reason_prompt,
@@ -301,12 +329,12 @@ for rep in range(50):
             base_prompt=None,
             max_new_tokens=1000,
             scale=1.0,
-            injection_tensor = knob_value*final_nn_values['vector']/final_nn_values['vector'].norm(dim=0),
-            temp=0.6,
+            injection_tensor=knob_value
+            * final_nn_values["vector"]
+            / final_nn_values["vector"].norm(dim=0),
+            temp=temp,  # 0.6,
         )
         length = len(model.to_str_tokens(current_out))
         collector.add(knob_value, current_out, length)
 
 print(f"Results saved to {output_file}")
-
-

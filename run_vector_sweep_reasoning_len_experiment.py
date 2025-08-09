@@ -5,9 +5,12 @@ import pickle
 import torch
 from pathlib import Path
 from typing import Any, Dict, Union
+import datetime
+import os
 
 # ML/Analysis libraries
 import seaborn as sns
+import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -101,7 +104,6 @@ def analyze_head_attention_sources(model, head, prompt: str, source_idx: int):
 
 
 def simple_patch_generate(
-    model,
     patch_prompt: str,
     target_heads: list[tuple[int, int]] | tuple[int, int],
     base_prompt: str | None = None,
@@ -120,15 +122,15 @@ def simple_patch_generate(
 
     Simplified two-stage head patching:
       1. If base_prompt is provided, run it once to grab each head's final z-output.
-         If base_prompt is None, we’ll disable those heads (zero them) instead.
+         If base_prompt is None, we'll disable those heads (zero them) instead.
       2. Generate on patch_prompt, but at the final prompt token index
-         override each target head’s z with either the saved vector*scale or zero.
+         override each target head's z with either the saved vector*scale or zero.
       3. If injection_tensor is given, also add it into attention-out at that same position.
 
     Args:
         patch_prompt:      The prompt you actually want to generate from.
         target_heads:      One (layer, head) tuple or a list thereof.
-        base_prompt:       The prompt to extract “correct” heads from, or None to zero them.
+        base_prompt:       The prompt to extract "correct" heads from, or None to zero them.
         max_new_tokens:    How many new tokens to sample after patching.
         scale:             Multiplicative factor on saved head activations.
         injection_tensor:  A (d_model,) tensor to add into attn.out at the patch position.
@@ -152,14 +154,14 @@ def simple_patch_generate(
         != model.tokenizer.bos_token_id
     ), "Patch prompt must not start with BOS token"
 
-    # — Stage 1: collect base z’s if requested —
+    # — Stage 1: collect base z's if requested —
     stored_z: Dict[tuple[int, int], torch.Tensor] = {}
 
     # to confirm that we at most inject once
     injection_count = 0
 
     if base_prompt is not None:
-        # hook each layer’s attn.z to grab only the last token
+        # hook each layer's attn.z to grab only the last token
         for layer_idx, head_idx in heads:
             hook_name = f"blocks.{layer_idx}.attn.hook_z"
 
@@ -248,7 +250,6 @@ def simple_patch_generate(
 
 
 def generate_with_resid_post_injection(
-    model,
     prompt: str,
     layer_idx: int,
     init_token_tensor: torch.Tensor | None = None,
@@ -316,7 +317,6 @@ def analyze_ov_outputs(
     layer_idx: int,
     head: tuple[int, int],
     indices: list[int],
-    model: Any,
 ) -> torch.Tensor:
     """
     Analyze OV outputs for a given head across multiple prompts and positions.
@@ -329,7 +329,6 @@ def analyze_ov_outputs(
         layer_idx:   Layer index to hook resid_pre from.
         head:        Tuple (layer_idx, head_idx) identifying which head's OV to apply.
         indices:     List of positions (can be negative) within each prompt sequence.
-        model:       HookedTransformer model.
 
     Returns:
         Tensor of shape (len(indices), len(prompts), d_model) containing OV outputs.
@@ -353,6 +352,7 @@ def analyze_ov_outputs(
     def _hook_resid_pre(resid_pre: torch.Tensor, hook=None) -> torch.Tensor:
         nonlocal captured
         captured = resid_pre.detach().clone()
+        print("captured shape", captured.shape)
         return resid_pre
 
     model.add_hook(f"blocks.{layer_idx}.hook_resid_pre", _hook_resid_pre)
@@ -393,7 +393,7 @@ class GenerationCollector:
     """
 
     def __init__(self, filepath: Union[str, Path]) -> None:
-        self.scale_values: list[float] = []
+        self.knob_values: list[float] = []  # Fixed: changed back from scale_values
         self.outputs: list[Any] = []
         self.lengths: list[int] = []
         self.filepath: Path = Path(filepath)
@@ -401,11 +401,11 @@ class GenerationCollector:
         if not self.filepath.parent.exists():
             self.filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    def add(self, scale_value: float, output: Any, length: int) -> None:
+    def add(self, knob_value: float, output: Any, length: int) -> None:
         """
         Add a new generation result and save to disk.
         """
-        self.scale_values.append(scale_value)
+        self.knob_values.append(knob_value)
         self.outputs.append(output)
         self.lengths.append(length)
         self.save()
@@ -418,7 +418,7 @@ class GenerationCollector:
         with target.open("wb") as f:
             pickle.dump(
                 {
-                    "scale_values": self.scale_values,
+                    "knob_values": self.knob_values,
                     "outputs": self.outputs,
                     "lengths": self.lengths,
                 },
@@ -435,7 +435,7 @@ class GenerationCollector:
             data = pickle.load(f)
 
         collector = cls(filepath=target)
-        collector.scale_values = data.get("scale_values", [])
+        collector.knob_values = data.get("knob_values", [])
         collector.outputs = data.get("outputs", [])
         collector.lengths = data.get("lengths", [])
         return collector
@@ -848,9 +848,8 @@ def analyze_prompt_vectors(tensor, null_vector, output_path, verbose=False):
 
 
 def run_sweep(
-    model,
     collector,
-    injection_vector,
+    injection_vector_data,
     scale_values,
     num_reps,
     prompt,
@@ -864,7 +863,6 @@ def run_sweep(
     for rep in range(num_reps):
         for injection_scale_value in scale_values:
             out = simple_patch_generate(
-                model=model,
                 patch_prompt=prompt,
                 target_heads=[target_head],
                 base_prompt=None,
@@ -872,8 +870,8 @@ def run_sweep(
                 scale=1,
                 injection_tensor=(
                     injection_scale_value
-                    * injection_vector
-                    / injection_vector.norm(dim=0)
+                    * injection_vector_data["vector"]
+                    / injection_vector_data["vector"].norm(dim=0)
                 ),
                 temp=0.6,
             )
@@ -881,7 +879,7 @@ def run_sweep(
             collector.add(injection_scale_value, out, length)
 
 
-def run_variance_experiment(model, num_prompts, layer_idx, head, variance_exp_dir):
+def run_variance_experiment(num_prompts, layer_idx, head, variance_exp_dir):
     """
     Extract ov.\n\n_pre vectors from prompts to understand variance.
     Saves results to output folder and performs analysis.
@@ -891,15 +889,15 @@ def run_variance_experiment(model, num_prompts, layer_idx, head, variance_exp_di
     # Get prompts from gsm8k dataset
     _, prompts = zip(*read_prompts(f"gsm8k_{num_prompts}"))
 
-    # Extract outputs from model
+    # Extract outputs from model using analyze_ov_outputs for bulk processing
     outputs = analyze_ov_outputs(
-        prompts=prompts, layer_idx=layer_idx, head=head, indices=[-1], model=model
+        prompts=prompts, layer_idx=layer_idx, head=head, indices=[-1]
     )
     assert outputs.shape == (1, len(prompts), 4096)
 
-    # Get null prompt baseline (empty prompt)
+    # Get null prompt baseline (empty prompt) 
     null_output = analyze_ov_outputs(
-        prompts=[""], layer_idx=layer_idx, head=head, indices=[-1], model=model
+        prompts=[""], layer_idx=layer_idx, head=head, indices=[-1]
     )
     assert null_output.shape == (1, 1, 4096)
 
@@ -920,26 +918,31 @@ def run_variance_experiment(model, num_prompts, layer_idx, head, variance_exp_di
     return prompts
 
 
-def prepare_injection_vectors(model, layer_idx, head, variance_exp_dir):
+def prepare_injection_vectors(layer_idx, head, variance_exp_dir):
     """
-    Load mean vector from variance experiment and compute normalized vectors.
-    Returns normalized mean vector and BOS vector for injection experiments.
+    Load mean vector from variance experiment and extract BOS vector.
+    Returns vector data dicts with same format as analyze_head_attention_sources.
     """
     # Load mean vector from variance experiment
     mean_nn_vector = torch.load(f"{variance_exp_dir}/mean_nn_vector.pt")
-    normed_mean_nn_vector = mean_nn_vector / mean_nn_vector.norm()
+    
+    # Format as dict like analyze_head_attention_sources returns
+    mean_nn_data = {
+        "vector": mean_nn_vector,
+        "norm": torch.norm(mean_nn_vector).item(),
+        "token": "\\n\\n",  # represents end of prompt token
+        "source_idx": -1,
+    }
 
-    # Extract and normalize BOS vector
-    bos_vector = analyze_ov_outputs(
-        prompts=[""], layer_idx=layer_idx, head=head, indices=[0], model=model
-    )[0][0]
-    normed_bos_vector = bos_vector / bos_vector.norm()
+    # Extract BOS vector using analyze_head_attention_sources (same as working version)
+    bos_data = analyze_head_attention_sources(
+        model, head, prompt="", source_idx=0
+    )
 
-    return normed_mean_nn_vector, normed_bos_vector
+    return mean_nn_data, bos_data
 
 
 def run_injection_experiment(
-    model,
     num_used_prompts,
     layer_idx,
     head,
@@ -953,8 +956,6 @@ def run_injection_experiment(
     Run vector injection sweep experiments across different prompt formats,
     vector types, and scale values.
     """
-    import datetime
-
     print("Running injection experiment...")
 
     os.makedirs(injection_exp_dir, exist_ok=True)
@@ -970,28 +971,30 @@ def run_injection_experiment(
     ) as f:
         json.dump(list(injection_prompts), f, indent=4)
 
-    # Prepare normalized vectors for injection
-    normed_mean_nn_vector, normed_bos_vector = prepare_injection_vectors(
-        model, layer_idx=layer_idx, head=head, variance_exp_dir=variance_exp_dir
+    # Prepare vectors for injection (same format as working version)
+    mean_nn_data, bos_data = prepare_injection_vectors(
+        layer_idx=layer_idx, head=head, variance_exp_dir=variance_exp_dir
     )
 
     # Experiment configuration
     prompt_formats = ["reason", "immediately_answer"]
-    vector_types = [("bos", normed_bos_vector), ("nn", normed_mean_nn_vector)]
+    vector_types = [("bos", bos_data), ("nn", mean_nn_data)]
     scale_values = np.linspace(0, 5, 10)
-    date_str = datetime.datetime.now().strftime("%Y%m%d")
+    
+    # File-safe timestamp: YYYYMMDD_HHMMSS
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     output_files = []
 
     # Run sweep across all combinations
     for prompt_idx, prompt in enumerate(injection_prompts):
         for format_type in prompt_formats:
-            for vector_name, injection_vector in vector_types:
+            for vector_name, injection_vector_data in vector_types:
 
-                # Define output file for this combination
+                # Define output file for this combination with timestamp
                 output_file = (
                     f"{injection_exp_dir}/{format_type}_prompt_{prompt_idx}_"
-                    f"{vector_name}_vector_sweep_{date_str}.pkl"
+                    f"{vector_name}_vector_sweep_{timestamp}.pkl"
                 )
                 output_files.append(output_file)
 
@@ -999,11 +1002,10 @@ def run_injection_experiment(
                 collector = GenerationCollector(filepath=output_file)
                 formatted_prompt = format_prompt(model, prompt, format_type)
 
-                # Run the sweep
+                # Run the sweep (fixed to use same normalization as working version)
                 run_sweep(
-                    model=model,
                     collector=collector,
-                    injection_vector=injection_vector,
+                    injection_vector_data=injection_vector_data,
                     scale_values=scale_values,
                     num_reps=num_reps,
                     prompt=formatted_prompt,
@@ -1021,12 +1023,12 @@ if __name__ == "__main__":
     # Constants
     LAYER_IDX = 2
     HEAD = (2, 17)
-    NUM_PROMPTS_VARIANCE = 5
-    NUM_PROMPTS_INJECTION = 1
+    NUM_PROMPTS_VARIANCE = 100
+    NUM_PROMPTS_INJECTION = 20
     VARIANCE_EXP_DIR = "nn_vector_variance_experiment"
     INJECTION_EXP_DIR = "vector_injection_and_generation_experiment"
     MAX_TOKENS = 1000
-    NUM_INJECTION_REPS = 25
+    NUM_INJECTION_REPS = 50
 
     torch.set_grad_enabled(False)
 
@@ -1035,7 +1037,6 @@ if __name__ == "__main__":
 
     # Run variance analysis experiment
     variance_prompts = run_variance_experiment(
-        model,
         num_prompts=NUM_PROMPTS_VARIANCE,
         layer_idx=LAYER_IDX,
         head=HEAD,
@@ -1044,7 +1045,6 @@ if __name__ == "__main__":
 
     # Run vector injection experiment
     injection_results = run_injection_experiment(
-        model,
         num_used_prompts=len(variance_prompts),
         num_prompts_injection=NUM_PROMPTS_INJECTION,
         layer_idx=LAYER_IDX,
