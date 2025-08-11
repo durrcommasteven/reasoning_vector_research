@@ -334,13 +334,13 @@ def analyze_ov_outputs(
         Tensor of shape (len(indices), len(prompts), d_model) containing OV outputs.
     """
     assert all([not ('<think>' in p) for p in prompts])
-   # format the prompts so its in immediate answer mode 
-   prompts = [
-       format_prompt(model, p, mode='immediate_answer')
-       for p in prompts
-   ]
+    # format the prompts so its in immediate answer mode 
+    prompts = [
+        format_prompt(model, p, mode='immediate_answer')
+        for p in prompts
+    ]
 
-   assert all(['<think>' in p for p in prompts])
+    assert all(['<think>' in p for p in prompts])
 
 
     # Unpack head
