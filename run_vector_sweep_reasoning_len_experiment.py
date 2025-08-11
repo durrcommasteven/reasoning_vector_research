@@ -333,6 +333,16 @@ def analyze_ov_outputs(
     Returns:
         Tensor of shape (len(indices), len(prompts), d_model) containing OV outputs.
     """
+    assert all([not ('<think>' in p) for p in prompts])
+   # format the prompts so its in immediate answer mode 
+   prompts = [
+       format_prompt(model, p, mode='immediate_answer')
+       for p in prompts
+   ]
+
+   assert all(['<think>' in p for p in prompts])
+
+
     # Unpack head
     _, head_idx = head
 
@@ -919,27 +929,32 @@ def run_variance_experiment(num_prompts, layer_idx, head, variance_exp_dir):
 
 
 def prepare_injection_vectors(layer_idx, head, variance_exp_dir):
-    """
-    Load mean vector from variance experiment and extract BOS vector.
-    Returns vector data dicts with same format as analyze_head_attention_sources.
-    """
-    # Load mean vector from variance experiment
-    mean_nn_vector = torch.load(f"{variance_exp_dir}/mean_nn_vector.pt")
-    
-    # Format as dict like analyze_head_attention_sources returns
-    mean_nn_data = {
-        "vector": mean_nn_vector,
-        "norm": torch.norm(mean_nn_vector).item(),
-        "token": "\\n\\n",  # represents end of prompt token
-        "source_idx": -1,
-    }
+   """
+   Load mean vector from variance experiment and extract BOS vector.
+   Returns vector data dicts with same format as analyze_head_attention_sources.
+   """
+   # Load mean vector from variance experiment
+   mean_nn_vector = torch.load(f"{variance_exp_dir}/mean_nn_vector.pt")
+  
+   # Format as dict like analyze_head_attention_sources returns
+   mean_nn_data = {
+       "vector": mean_nn_vector,
+       "norm": torch.norm(mean_nn_vector).item(),
+       "token": "\\n\\n",  # represents end of prompt token
+       "source_idx": -1,
+   }
 
-    # Extract BOS vector using analyze_head_attention_sources (same as working version)
-    bos_data = analyze_head_attention_sources(
-        model, head, prompt="", source_idx=0
-    )
+   # Load the null/BOS vector that was already computed and saved
+   null_nn_vector = torch.load(f"{variance_exp_dir}/null_nn_vector.pt")
+  
+   bos_data = {
+       "vector": null_nn_vector,
+       "norm": torch.norm(null_nn_vector).item(),
+       "token": "<|begin_of_text|>",  # or whatever the BOS token is
+       "source_idx": 0,
+   }
 
-    return mean_nn_data, bos_data
+   return mean_nn_data, bos_data
 
 
 def run_injection_experiment(
@@ -1024,7 +1039,7 @@ if __name__ == "__main__":
     LAYER_IDX = 2
     HEAD = (2, 17)
     NUM_PROMPTS_VARIANCE = 100
-    NUM_PROMPTS_INJECTION = 20
+    NUM_PROMPTS_INJECTION = 5
     VARIANCE_EXP_DIR = "nn_vector_variance_experiment"
     INJECTION_EXP_DIR = "vector_injection_and_generation_experiment"
     MAX_TOKENS = 1000
